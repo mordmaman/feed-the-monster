@@ -1,6 +1,6 @@
 # Feed the Monster!
 
-A game made by Yoav (age 7) and his dad.
+A little monster-feeding game, made for fun at home.
 
 Munchy the monster is SO hungry. Slide your finger (or use the mouse or arrow keys) to move him and catch the yummy food — but don't let him eat the socks, broccoli, trainers or caterpillars!
 
@@ -9,8 +9,8 @@ Munchy the monster is SO hungry. Slide your finger (or use the mouse or arrow ke
 ## How it works
 
 - Every yummy thing is a point. A 🌟 super snack is worth 5 and fills Munchy's tummy.
-- 🥛 **Super milk** (Yoav's idea!) is very rare — catch it for 10 points and a full tummy.
-- 🌾 **Hay** (also Yoav's idea) takes away 5 points.
+- 🥛 **Super milk** is very rare — catch it for 10 points and a full tummy.
+- 🌾 **Hay** takes away 5 points.
 - Munchy's tummy empties over time — if it goes empty, it's game over.
 - Eat 3 yucky things and it's game over too.
 - Every 10 points, Munchy BURPS and it gets harder: faster food, more yucky things, then drifting and zig-zagging food.
