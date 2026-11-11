@@ -49,6 +49,7 @@
   .row .emo { font-size: 30px; letter-spacing: 4px; white-space: nowrap; }
   .row.good { background: #e3f7d6; color: #2e7a1a; }
   .row.bad  { background: #ffe0e0; color: #b3261e; }
+  .row.gold { background: #fff3c4; color: #9a6200; }
   .how { margin: 0 0 14px; font-size: 17px; font-weight: 500; opacity: 0.85; }
   .score-line { font-size: clamp(22px, 5.5vw, 30px); margin: 4px 0 6px; font-weight: 500; }
   .score-line b { font-size: 1.4em; color: #ff7a29; }
@@ -68,12 +69,17 @@
     background: rgba(255, 255, 255, 0.9); border: 3px solid #3b2a6b;
     font-size: 24px; line-height: 1; cursor: pointer; padding: 0;
   }
+  @media (min-width: 640px) and (min-height: 521px) {
+    .card { max-width: 620px; }
+    .rows { grid-template-columns: 1fr 1fr 1fr; }
+    .row { font-size: 17px; }
+  }
   @media (max-height: 520px) {
     .overlay { padding-top: 8px; }
     .card { padding: 10px 18px 14px; max-width: 520px; }
     h1 { font-size: 34px; }
     .big { margin: 2px 0 8px; font-size: 18px; }
-    .rows { grid-template-columns: 1fr 1fr; margin-bottom: 8px; }
+    .rows { grid-template-columns: 1fr 1fr 1fr; margin-bottom: 8px; }
     .row { font-size: 15px; padding: 6px 8px; }
     .row .emo { font-size: 22px; }
     .how { display: none; }
@@ -94,17 +100,18 @@
     <div class="rows">
       <div class="row good"><span class="emo" id="goodList"></span><span>Yum! Catch these</span></div>
       <div class="row bad"><span class="emo" id="badList"></span><span>Yuck! Not these</span></div>
+      <div class="row gold"><span class="emo" id="goldShow"></span><span>Super snack! 5 points</span></div>
     </div>
-    <p class="how">Move your finger, the mouse or the arrow keys</p>
+    <p class="how">Don't let his tummy go empty!<br>Move with your finger, the mouse or the arrow keys</p>
     <button class="go" id="playBtn">Play!</button>
   </div>
 </div>
 
 <div id="overScreen" class="overlay hidden">
   <div class="card">
-    <h1>Bleurgh!</h1>
-    <p class="big"><span class="mname">Munchy</span> ate too many yucky things!</p>
-    <p class="score-line"><span class="mname">Munchy</span> ate <b id="finalScore">0</b> yummy things!</p>
+    <h1 id="overTitle">Bleurgh!</h1>
+    <p class="big" id="overReason"></p>
+    <p class="score-line">You got <b id="finalScore">0</b> points!</p>
     <p class="best" id="bestLine"></p>
     <button class="go" id="againBtn">Play again!</button>
   </div>
@@ -119,10 +126,12 @@ const CONFIG = {
   monsterColour: '#8e5cf7',                 // try '#ff7a29' (orange) or '#2fb5ff' (blue)
   yummy: ['🍎', '🍌', '🍪', '🍕', '🧁', '🍓', '🍉', '🍩', '🥕', '🍇'],
   yucky: ['🧦', '🥦', '👟', '🐛'],
-  yuckyChance: 0.3,      // 0.3 means 3 in every 10 things are yucky
+  golden: '🌟',          // rare super snack: 5 points and fills the tummy
+  yuckyChance: 0.3,      // 0.3 means 3 in every 10 things are yucky (more each level)
   lives: 3,              // how many yucky things before it's game over
-  burpEvery: 10,         // every 10 yummy things: BURP! and the food falls faster
-  startSpeed: 0.22,      // how fast food falls (bigger = faster)
+  burpEvery: 10,         // every 10 points: BURP! and the game gets harder
+  startSpeed: 0.28,      // how fast food falls (bigger = faster)
+  hungry: true,          // Munchy's tummy empties over time, so keep feeding him!
 };
 // =====================================================================
 
@@ -135,7 +144,9 @@ let W = 0, H = 0, groundTop = 0, baseR = 50, itemSize = 44;
 let state = 'start';       // start | playing | ending | over
 let score = 0, lives = CONFIG.lives, level = 0, best = 0;
 let items = [], particles = [], floaters = [], clouds = [];
-let spawnT = 0, spawned = 0, endT = 0, bannerT = 0, time = 0;
+let spawnT = 0, spawned = 0, endT = 0, bannerT = 0, bannerSub = '', time = 0;
+let hunger = 1, hungryWarned = false, overReason = 'yucky';
+const BURP_MESSAGES = { 1: 'Faster food coming!', 2: 'Uh oh, the food is drifting!', 3: 'More yucky things!', 4: 'Zig-zag food!' };
 let pointerDown = false, pointerX = null, pointerY = null;
 const keys = {};
 
@@ -172,6 +183,8 @@ const sfx = {
             [523, 659, 784, 1047].forEach((f, i) => tone(f, null, 0.12, 'triangle', 0.13, 0.55 + i * 0.09)); },
   start() { [262, 330, 392, 523].forEach((f, i) => tone(f, null, 0.11, 'triangle', 0.14, i * 0.07)); },
   over()  { [392, 330, 262, 196].forEach((f, i) => tone(f, null, 0.24, 'triangle', 0.15, i * 0.18)); },
+  gold()  { [784, 988, 1175, 1568, 1976].forEach((f, i) => tone(f, null, 0.1, 'triangle', 0.13, i * 0.06)); },
+  rumble(){ tone(95, 55, 0.55, 'sawtooth', 0.13); tone(80, 45, 0.5, 'square', 0.06, 0.12); },
 };
 
 // ---------- helpers ----------
@@ -181,6 +194,14 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 function hex(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
 const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
 const rgb = a => `rgb(${a[0]},${a[1]},${a[2]})`;
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
+  ctx.lineTo(x + w, y + h - r); ctx.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
+  ctx.lineTo(x + r, y + h); ctx.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
+  ctx.lineTo(x, y + r); ctx.arc(x + r, y + r, r, Math.PI, Math.PI * 1.5);
+  ctx.closePath();
+}
 function ell(x, y, rx, ry, fill) { ctx.beginPath(); ctx.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), 0, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); }
 function outlinedText(txt, x, y, size, fill, align) {
   ctx.font = `700 ${size}px ${FONT}`;
@@ -210,6 +231,7 @@ const overScreen = document.getElementById('overScreen');
 document.querySelectorAll('.mname').forEach(el => el.textContent = CONFIG.monsterName);
 document.getElementById('goodList').textContent = CONFIG.yummy.slice(0, 4).join('');
 document.getElementById('badList').textContent = CONFIG.yucky.slice(0, 4).join('');
+document.getElementById('goldShow').textContent = CONFIG.golden;
 
 function startGame() {
   if (state === 'playing' || state === 'ending') return;
@@ -217,6 +239,7 @@ function startGame() {
   score = 0; lives = CONFIG.lives; level = 0;
   items = []; particles = []; floaters = [];
   spawnT = 0.5; spawned = 0; bannerT = 0;
+  hunger = 1; hungryWarned = false; overReason = 'yucky';
   m.yuck = 0; m.happy = 0;
   startScreen.classList.add('hidden'); overScreen.classList.add('hidden');
   state = 'playing';
@@ -227,6 +250,10 @@ function showGameOver() {
   const isRecord = score > best && score > 0;
   if (isRecord) { best = score; save('ftm.best', best); }
   document.getElementById('finalScore').textContent = score;
+  document.getElementById('overTitle').textContent = overReason === 'hungry' ? 'Rumble rumble!' : 'Bleurgh!';
+  document.getElementById('overReason').textContent = overReason === 'hungry'
+    ? `${CONFIG.monsterName}'s tummy went empty!`
+    : `${CONFIG.monsterName} ate too many yucky things!`;
   document.getElementById('bestLine').innerHTML = isRecord
     ? '<span class="record">New record! 🎉</span>'
     : `Best so far: ${best}`;
@@ -260,14 +287,23 @@ window.addEventListener('keyup', e => { delete keys[e.key.toLowerCase()]; });
 // ---------- game logic ----------
 function spawnItem() {
   // the first few are always yummy, so it starts gently
-  const yucky = spawned >= 3 && Math.random() < CONFIG.yuckyChance;
+  let kind = 'good';
+  if (spawned >= 3) {
+    if (level >= 1 && Math.random() < 0.05) kind = 'gold';
+    else if (Math.random() < Math.min(0.55, CONFIG.yuckyChance + level * 0.03)) kind = 'bad';
+  }
   const pad = itemSize * 0.8;
+  const x = rand(pad, W - pad);
+  // from level 2 food drifts sideways; from level 4 some of it zig-zags
+  const drift = level >= 2 ? W * rand(0.04, 0.12) * Math.min(1, (level - 1) / 4) * (Math.random() < 0.5 ? -1 : 1) : 0;
+  const wob = level >= 4 && Math.random() < 0.5 ? itemSize * rand(0.6, 1.4) : 0;
   items.push({
-    x: rand(pad, W - pad), y: -itemSize,
-    e: yucky ? pick(CONFIG.yucky) : pick(CONFIG.yummy),
-    good: !yucky,
+    x, bx: x, y: -itemSize,
+    e: kind === 'gold' ? CONFIG.golden : kind === 'bad' ? pick(CONFIG.yucky) : pick(CONFIG.yummy),
+    kind, good: kind !== 'bad',
     rot: rand(-0.3, 0.3), spin: rand(-1.6, 1.6),
-    v: rand(0.9, 1.12),
+    v: kind === 'gold' ? 1.35 : rand(0.9, 1.12),
+    vx: drift, wob, ph: rand(0, Math.PI * 2),
   });
   spawned++;
 }
@@ -281,20 +317,31 @@ function floatText(txt, x, y, colour) { floaters.push({ txt, x, y, c: colour, li
 
 function eat(it) {
   if (it.good) {
-    score++;
     m.happy = 1;
-    sfx.chomp();
-    burst(it.x, it.y, ['#ffcf40', '#ff7aa8', '#7ad3ff', '#9be07a', '#ffffff'], 12);
-    floatText(pick(['Yum!', 'Nom nom!', 'Tasty!', 'Mmm!', 'Crunch!']), m.x, groundTop - m.r * 2.3, '#ff7a29');
+    if (it.kind === 'gold') {
+      score += 5; hunger = 1;
+      sfx.gold();
+      burst(it.x, it.y, ['#ffd84a', '#ffb800', '#fff4b0', '#ffffff'], 24);
+      floatText('+5 WOW!', m.x, groundTop - m.r * 2.3, '#e09a00');
+    } else {
+      score++; hunger = Math.min(1, hunger + 0.15);
+      sfx.chomp();
+      burst(it.x, it.y, ['#ffcf40', '#ff7aa8', '#7ad3ff', '#9be07a', '#ffffff'], 12);
+      floatText(pick(['Yum!', 'Nom nom!', 'Tasty!', 'Mmm!', 'Crunch!']), m.x, groundTop - m.r * 2.3, '#ff7a29');
+    }
     const newLevel = Math.floor(score / CONFIG.burpEvery);
-    if (newLevel > level) { level = newLevel; bannerT = 1.6; setTimeout(() => sfx.burp(), 150); }
+    if (newLevel > level) {
+      level = newLevel; bannerT = 1.6;
+      bannerSub = BURP_MESSAGES[level] || 'Even faster!';
+      setTimeout(() => sfx.burp(), 150);
+    }
   } else {
     lives--;
     m.yuck = 1;
     sfx.yuck();
     burst(it.x, it.y, ['#8ccf3f', '#6aa92b', '#b6e36a'], 14);
     floatText(pick(['Yuck!', 'Bleurgh!', 'Eww!']), m.x, groundTop - m.r * 2.3, '#3f9a1f');
-    if (lives <= 0) { state = 'ending'; endT = 1.1; }
+    if (lives <= 0) { overReason = 'yucky'; state = 'ending'; endT = 1.1; }
   }
 }
 
@@ -307,7 +354,7 @@ function update(dt) {
   if (kd) m.targetX += kd * W * 0.85 * dt;
   m.targetX = clamp(m.targetX, m.r, W - m.r);
   m.x += (m.targetX - m.x) * Math.min(1, dt * 14);
-  m.r += (baseR * (1 + Math.min(level, 6) * 0.05) - m.r) * Math.min(1, dt * 4);
+  m.r += (baseR * (1 + Math.min(level, 5) * 0.02) - m.r) * Math.min(1, dt * 4);
 
   // face
   m.blinkT -= dt;
@@ -320,17 +367,34 @@ function update(dt) {
   // falling food
   if (state === 'playing') {
     spawnT -= dt;
-    if (spawnT <= 0) { spawnItem(); spawnT = Math.max(0.42, 1.15 - level * 0.09) * rand(0.8, 1.2); }
+    if (spawnT <= 0) { spawnItem(); spawnT = Math.max(0.32, 1.0 - level * 0.1) * rand(0.8, 1.2); }
+    // the tummy empties over time, faster each level
+    if (CONFIG.hungry) {
+      hunger -= (0.05 + level * 0.01) * dt;
+      if (hunger < 0.3 && !hungryWarned) {
+        hungryWarned = true; sfx.rumble();
+        floatText("I'm hungry!", m.x, groundTop - m.r * 2.3, '#e0247a');
+      }
+      if (hunger > 0.45) hungryWarned = false;
+      if (hunger <= 0) { hunger = 0; overReason = 'hungry'; state = 'ending'; endT = 1.1; sfx.rumble(); }
+    }
   }
   if (state === 'ending') { endT -= dt; if (endT <= 0) showGameOver(); }
 
-  const speed = H * Math.min(0.65, CONFIG.startSpeed + level * 0.04);
+  const speed = H * Math.min(0.85, CONFIG.startSpeed + level * 0.05);
+  const edge = itemSize * 0.6;
   const mouthY = groundTop - m.r * 0.92;
   let nearest = null, nearestD = Infinity;
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
     it.y += speed * it.v * dt;
     it.rot += it.spin * dt;
+    if (it.vx) {
+      it.bx += it.vx * dt;
+      if (it.bx < edge) { it.bx = edge; it.vx = Math.abs(it.vx); }
+      else if (it.bx > W - edge) { it.bx = W - edge; it.vx = -Math.abs(it.vx); }
+    }
+    if (it.bx !== undefined) it.x = clamp(it.bx + (it.wob ? Math.sin(time * 3 + it.ph) * it.wob : 0), edge, W - edge);
     if (state === 'playing'
         && Math.abs(it.x - m.x) < m.r * 0.85 + itemSize * 0.25
         && it.y + itemSize * 0.35 > mouthY - m.r * 0.5
@@ -457,6 +521,9 @@ function drawMonster() {
     ctx.beginPath(); ctx.moveTo(-mw * 0.8, my);
     for (let i = 1; i <= 4; i++) ctx.quadraticCurveTo(-mw * 0.8 + (i - 0.5) * mw * 0.4, my + (i % 2 ? -r * 0.08 : r * 0.08), -mw * 0.8 + i * mw * 0.4, my);
     ctx.stroke();
+  } else if (m.mouth < 0.12 && CONFIG.hungry && hunger < 0.3) {
+    // sad hungry face
+    ctx.beginPath(); ctx.arc(0, my + r * 0.3, mw * 0.6, Math.PI * 1.2, Math.PI * 1.8); ctx.stroke();
   } else if (m.mouth < 0.12) {
     ctx.beginPath(); ctx.arc(0, my - r * 0.12, mw * 0.75, Math.PI * 0.2, Math.PI * 0.8); ctx.stroke();
   } else {
@@ -504,6 +571,12 @@ function drawItems() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.font = `${itemSize}px ${EMOJI_FONT}`;
   for (const it of items) {
+    if (it.kind === 'gold') {
+      const g = ctx.createRadialGradient(it.x, it.y, 0, it.x, it.y, itemSize);
+      g.addColorStop(0, `rgba(255,220,80,${0.55 + Math.sin(time * 10) * 0.2})`);
+      g.addColorStop(1, 'rgba(255,220,80,0)');
+      ctx.fillStyle = g; ctx.fillRect(it.x - itemSize, it.y - itemSize, itemSize * 2, itemSize * 2);
+    }
     ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot);
     ctx.fillText(it.e, 0, 0);
     ctx.restore();
@@ -539,6 +612,24 @@ function drawHUD() {
   for (let i = 0; i < CONFIG.lives; i++) hearts += i < lives ? '❤️' : '🤍';
   ctx.fillText(hearts, 16, 18 + fs + 8 + hs / 2);
 
+  // tummy meter
+  if (CONFIG.hungry) {
+    const ts = clamp(fs * 0.5, 15, 22);
+    const ty = 18 + fs + 8 + hs + 10;
+    outlinedText('Tummy', 16, ty + ts / 2, ts, '#3b2a6b', 'left');
+    const bx = 16 + ctx.measureText('Tummy').width + 8, bw = clamp(W * 0.3, 100, 200), bh = ts;
+    const low = hunger < 0.3;
+    roundRect(bx, ty, bw, bh, bh / 2); ctx.fillStyle = '#fff'; ctx.fill();
+    if (hunger > 0.01) {
+      ctx.save(); roundRect(bx, ty, bw, bh, bh / 2); ctx.clip();
+      ctx.fillStyle = hunger > 0.5 ? '#5cbf3f' : hunger > 0.3 ? '#ffb02e' : '#ff4d4d';
+      if (low) ctx.globalAlpha = 0.6 + Math.sin(time * 12) * 0.4;
+      ctx.fillRect(bx, ty, bw * hunger, bh);
+      ctx.restore();
+    }
+    roundRect(bx, ty, bw, bh, bh / 2); ctx.lineWidth = 3; ctx.strokeStyle = '#3b2a6b'; ctx.stroke();
+  }
+
   if (bannerT > 0) {
     const t = 1.6 - bannerT;
     const pop = t < 0.25 ? 0.4 + (t / 0.25) * 0.75 : 1.15 - Math.min(0.15, (t - 0.25) * 0.6);
@@ -546,7 +637,7 @@ function drawHUD() {
     ctx.save(); ctx.globalAlpha = a;
     ctx.translate(W / 2, H * 0.36); ctx.scale(pop, pop);
     outlinedText('BURP!', 0, 0, clamp(W * 0.16, 56, 120), '#ff7a29');
-    outlinedText('Faster food coming!', 0, clamp(W * 0.12, 48, 90), clamp(W * 0.05, 20, 34), '#3b2a6b');
+    outlinedText(bannerSub, 0, clamp(W * 0.12, 48, 90), clamp(W * 0.05, 20, 34), '#3b2a6b');
     ctx.restore();
   }
 }
