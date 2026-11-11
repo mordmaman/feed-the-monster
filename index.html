@@ -57,6 +57,7 @@
   .row.good { background: #e3f7d6; color: #2e7a1a; }
   .row.bad  { background: #ffe0e0; color: #b3261e; }
   .row.gold { background: #fff3c4; color: #9a6200; }
+  .row.hay  { background: #f6ead0; color: #8a5a00; }
   .how { margin: 0 0 14px; font-size: 17px; font-weight: 500; opacity: 0.85; }
   .score-line { font-size: clamp(22px, 5.5vw, 30px); margin: 4px 0 6px; font-weight: 500; }
   .score-line b { font-size: 1.4em; color: #ff7a29; }
@@ -78,7 +79,7 @@
   }
   @media (min-width: 640px) and (min-height: 521px) {
     .card { max-width: 620px; }
-    .rows { grid-template-columns: 1fr 1fr 1fr; }
+    .rows { grid-template-columns: 1fr 1fr; }
     .row { font-size: 17px; }
   }
   @media (max-height: 520px) {
@@ -86,7 +87,7 @@
     .card { padding: 10px 18px 14px; max-width: 520px; }
     h1 { font-size: 34px; }
     .big { margin: 2px 0 8px; font-size: 18px; }
-    .rows { grid-template-columns: 1fr 1fr 1fr; margin-bottom: 8px; }
+    .rows { grid-template-columns: 1fr 1fr; margin-bottom: 8px; }
     .row { font-size: 15px; padding: 6px 8px; }
     .row .emo { font-size: 22px; }
     .how { display: none; }
@@ -107,7 +108,8 @@
     <div class="rows">
       <div class="row good"><span class="emo" id="goodList"></span><span>Yum! Catch these</span></div>
       <div class="row bad"><span class="emo" id="badList"></span><span>Yuck! Not these</span></div>
-      <div class="row gold"><span class="emo" id="goldShow"></span><span>Super snack! 5 points</span></div>
+      <div class="row hay"><span class="emo" id="hayShow"></span><span id="hayText">Hay! Lose 5 points</span></div>
+      <div class="row gold"><span class="emo" id="goldShow"></span><span id="goldText">Super snacks! 5 and 10 points</span></div>
     </div>
     <p class="how">Don't let his tummy go empty!<br>Move with your finger, the mouse or the arrow keys</p>
     <button class="go" id="playBtn">Play!</button>
@@ -134,6 +136,12 @@ const CONFIG = {
   yummy: ['🍎', '🍌', '🍪', '🍕', '🧁', '🍓', '🍉', '🍩', '🥕', '🍇'],
   yucky: ['🧦', '🥦', '👟', '🐛'],
   golden: '🌟',          // rare super snack: 5 points and fills the tummy
+  milk: '🥛',            // Yoav's SUPER milk: very rare, 10 points and fills the tummy
+  milkChance: 0.015,     // 0.015 means about 1 in every 70 things
+  milkPoints: 10,
+  hay: '🌾',             // Yoav's hay: lose 5 points (but not a heart)
+  hayChance: 0.08,
+  hayPenalty: 5,
   yuckyChance: 0.3,      // 0.3 means 3 in every 10 things are yucky (more each level)
   lives: 3,              // how many yucky things before it's game over
   burpEvery: 10,         // every 10 points: BURP! and the game gets harder
@@ -192,6 +200,8 @@ const sfx = {
   over()  { [392, 330, 262, 196].forEach((f, i) => tone(f, null, 0.24, 'triangle', 0.15, i * 0.18)); },
   gold()  { [784, 988, 1175, 1568, 1976].forEach((f, i) => tone(f, null, 0.1, 'triangle', 0.13, i * 0.06)); },
   rumble(){ tone(95, 55, 0.55, 'sawtooth', 0.13); tone(80, 45, 0.5, 'square', 0.06, 0.12); },
+  milk()  { [523, 659, 784, 1047, 1319, 1568, 2093].forEach((f, i) => tone(f, null, 0.14, 'triangle', 0.13, i * 0.055)); },
+  hay()   { tone(210, 120, 0.16, 'square', 0.08); tone(150, 80, 0.24, 'triangle', 0.12, 0.08); },
 };
 
 // ---------- helpers ----------
@@ -238,7 +248,10 @@ const overScreen = document.getElementById('overScreen');
 document.querySelectorAll('.mname').forEach(el => el.textContent = CONFIG.monsterName);
 document.getElementById('goodList').textContent = CONFIG.yummy.slice(0, 4).join('');
 document.getElementById('badList').textContent = CONFIG.yucky.slice(0, 4).join('');
-document.getElementById('goldShow').textContent = CONFIG.golden;
+document.getElementById('goldShow').textContent = CONFIG.golden + CONFIG.milk;
+document.getElementById('goldText').textContent = `Super! ${CONFIG.golden} 5 points, ${CONFIG.milk} ${CONFIG.milkPoints} points (very rare!)`;
+document.getElementById('hayShow').textContent = CONFIG.hay;
+document.getElementById('hayText').textContent = `Hay! Lose ${CONFIG.hayPenalty} points`;
 
 function startGame() {
   if (state === 'playing' || state === 'ending') return;
@@ -296,7 +309,10 @@ function spawnItem() {
   // the first few are always yummy, so it starts gently
   let kind = 'good';
   if (spawned >= 3) {
-    if (level >= 1 && Math.random() < 0.05) kind = 'gold';
+    const r = Math.random();
+    if (r < CONFIG.milkChance) kind = 'milk';
+    else if (r < CONFIG.milkChance + CONFIG.hayChance) kind = 'hay';
+    else if (level >= 1 && Math.random() < 0.05) kind = 'gold';
     else if (Math.random() < Math.min(0.55, CONFIG.yuckyChance + level * 0.03)) kind = 'bad';
   }
   const pad = itemSize * 0.8;
@@ -306,10 +322,10 @@ function spawnItem() {
   const wob = level >= 4 && Math.random() < 0.5 ? itemSize * rand(0.6, 1.4) : 0;
   items.push({
     x, bx: x, y: -itemSize,
-    e: kind === 'gold' ? CONFIG.golden : kind === 'bad' ? pick(CONFIG.yucky) : pick(CONFIG.yummy),
-    kind, good: kind !== 'bad',
+    e: { gold: CONFIG.golden, milk: CONFIG.milk, hay: CONFIG.hay }[kind] || (kind === 'bad' ? pick(CONFIG.yucky) : pick(CONFIG.yummy)),
+    kind, good: kind !== 'bad' && kind !== 'hay',
     rot: rand(-0.3, 0.3), spin: rand(-1.6, 1.6),
-    v: kind === 'gold' ? 1.35 : rand(0.9, 1.12),
+    v: kind === 'milk' ? 1.5 : kind === 'gold' ? 1.35 : rand(0.9, 1.12),
     vx: drift, wob, ph: rand(0, Math.PI * 2),
   });
   spawned++;
@@ -323,9 +339,22 @@ function burst(x, y, colours, n) {
 function floatText(txt, x, y, colour) { floaters.push({ txt, x, y, c: colour, life: 1 }); }
 
 function eat(it) {
+  if (it.kind === 'hay') {
+    score = Math.max(0, score - CONFIG.hayPenalty);
+    m.yuck = 0.6;
+    sfx.hay();
+    burst(it.x, it.y, ['#e8c35a', '#c9a23a', '#f3dc8c'], 16);
+    floatText(`-${CONFIG.hayPenalty} Hay!`, m.x, groundTop - m.r * 2.3, '#a8741a');
+    return;
+  }
   if (it.good) {
     m.happy = 1;
-    if (it.kind === 'gold') {
+    if (it.kind === 'milk') {
+      score += CONFIG.milkPoints; hunger = 1;
+      sfx.milk();
+      burst(it.x, it.y, ['#ffffff', '#cfe9ff', '#8fd0ff', '#ffe27a'], 34);
+      floatText(`+${CONFIG.milkPoints} SUPER MILK!`, m.x, groundTop - m.r * 2.3, '#1f7fd6');
+    } else if (it.kind === 'gold') {
       score += 5; hunger = 1;
       sfx.gold();
       burst(it.x, it.y, ['#ffd84a', '#ffb800', '#fff4b0', '#ffffff'], 24);
@@ -578,11 +607,12 @@ function drawItems() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.font = `${itemSize}px ${EMOJI_FONT}`;
   for (const it of items) {
-    if (it.kind === 'gold') {
-      const g = ctx.createRadialGradient(it.x, it.y, 0, it.x, it.y, itemSize);
-      g.addColorStop(0, `rgba(255,220,80,${0.55 + Math.sin(time * 10) * 0.2})`);
-      g.addColorStop(1, 'rgba(255,220,80,0)');
-      ctx.fillStyle = g; ctx.fillRect(it.x - itemSize, it.y - itemSize, itemSize * 2, itemSize * 2);
+    if (it.kind === 'gold' || it.kind === 'milk') {
+      const c = it.kind === 'milk' ? '140,205,255' : '255,220,80';
+      const g = ctx.createRadialGradient(it.x, it.y, 0, it.x, it.y, itemSize * (it.kind === 'milk' ? 1.3 : 1));
+      g.addColorStop(0, `rgba(${c},${0.6 + Math.sin(time * 10) * 0.25})`);
+      g.addColorStop(1, `rgba(${c},0)`);
+      ctx.fillStyle = g; ctx.fillRect(it.x - itemSize * 1.3, it.y - itemSize * 1.3, itemSize * 2.6, itemSize * 2.6);
     }
     ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot);
     ctx.fillText(it.e, 0, 0);
