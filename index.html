@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Feed the Monster!</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: #8fd8ff;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas {
+    display: block; width: 100vw; height: 100vh; height: 100dvh;
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  }
+  .overlay {
+    position: fixed; inset: 0;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: clamp(12px, 5vh, 56px) 16px 0;
+    pointer-events: none;
+    font-family: Fredoka, system-ui, sans-serif;
+  }
+  .overlay.hidden { display: none; }
+  .card {
+    pointer-events: auto;
+    background: rgba(255, 255, 255, 0.94);
+    border: 4px solid #3b2a6b; border-radius: 28px;
+    padding: 18px 24px 24px;
+    width: 100%; max-width: 440px; box-sizing: border-box;
+    text-align: center; color: #3b2a6b;
+    box-shadow: 0 8px 0 rgba(59, 42, 107, 0.25);
+  }
+  h1 {
+    margin: 0 0 4px; line-height: 1.05;
+    font-size: clamp(36px, 9vw, 56px); font-weight: 700;
+    color: #ff7a29; text-shadow: 3px 3px 0 #3b2a6b;
+  }
+  .big { font-size: clamp(20px, 5vw, 26px); margin: 6px 0 12px; font-weight: 500; }
+  .rows { display: grid; gap: 8px; margin-bottom: 12px; }
+  .row {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    border-radius: 16px; padding: 8px 12px; font-size: 20px; font-weight: 700;
+  }
+  .row .emo { font-size: 30px; letter-spacing: 4px; white-space: nowrap; }
+  .row.good { background: #e3f7d6; color: #2e7a1a; }
+  .row.bad  { background: #ffe0e0; color: #b3261e; }
+  .how { margin: 0 0 14px; font-size: 17px; font-weight: 500; opacity: 0.85; }
+  .score-line { font-size: clamp(22px, 5.5vw, 30px); margin: 4px 0 6px; font-weight: 500; }
+  .score-line b { font-size: 1.4em; color: #ff7a29; }
+  .best { font-size: 18px; margin: 0 0 16px; font-weight: 500; }
+  .record { color: #e0247a; font-weight: 700; }
+  button.go {
+    font-family: Fredoka, system-ui, sans-serif; font-weight: 700;
+    font-size: 30px; color: #3b2a6b; cursor: pointer;
+    background: #ffcf40; border: 4px solid #3b2a6b; border-radius: 999px;
+    padding: 10px 48px; box-shadow: 0 6px 0 #3b2a6b;
+    transition: transform 0.06s, box-shadow 0.06s;
+  }
+  button.go:active { transform: translateY(4px); box-shadow: 0 2px 0 #3b2a6b; }
+  #mute {
+    position: fixed; top: 12px; right: 12px; z-index: 5;
+    width: 52px; height: 52px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.9); border: 3px solid #3b2a6b;
+    font-size: 24px; line-height: 1; cursor: pointer; padding: 0;
+  }
+  @media (max-height: 520px) {
+    .overlay { padding-top: 8px; }
+    .card { padding: 10px 18px 14px; max-width: 520px; }
+    h1 { font-size: 34px; }
+    .big { margin: 2px 0 8px; font-size: 18px; }
+    .rows { grid-template-columns: 1fr 1fr; margin-bottom: 8px; }
+    .row { font-size: 15px; padding: 6px 8px; }
+    .row .emo { font-size: 22px; }
+    .how { display: none; }
+    .best { margin-bottom: 10px; }
+    button.go { font-size: 24px; padding: 6px 36px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<button id="mute" aria-label="Sound on or off">🔊</button>
+
+<div id="startScreen" class="overlay">
+  <div class="card">
+    <h1>Feed the Monster!</h1>
+    <p class="big"><span class="mname">Munchy</span> is SO hungry!</p>
+    <div class="rows">
+      <div class="row good"><span class="emo" id="goodList"></span><span>Yum! Catch these</span></div>
+      <div class="row bad"><span class="emo" id="badList"></span><span>Yuck! Not these</span></div>
+    </div>
+    <p class="how">Move your finger, the mouse or the arrow keys</p>
+    <button class="go" id="playBtn">Play!</button>
+  </div>
+</div>
+
+<div id="overScreen" class="overlay hidden">
+  <div class="card">
+    <h1>Bleurgh!</h1>
+    <p class="big"><span class="mname">Munchy</span> ate too many yucky things!</p>
+    <p class="score-line"><span class="mname">Munchy</span> ate <b id="finalScore">0</b> yummy things!</p>
+    <p class="best" id="bestLine"></p>
+    <button class="go" id="againBtn">Play again!</button>
+  </div>
+</div>
+
+<script>
+// =====================================================================
+//  EASY THINGS TO CHANGE: let Yoav pick these!
+// =====================================================================
+const CONFIG = {
+  monsterName: 'Munchy',
+  monsterColour: '#8e5cf7',                 // try '#ff7a29' (orange) or '#2fb5ff' (blue)
+  yummy: ['🍎', '🍌', '🍪', '🍕', '🧁', '🍓', '🍉', '🍩', '🥕', '🍇'],
+  yucky: ['🧦', '🥦', '👟', '🐛'],
+  yuckyChance: 0.3,      // 0.3 means 3 in every 10 things are yucky
+  lives: 3,              // how many yucky things before it's game over
+  burpEvery: 10,         // every 10 yummy things: BURP! and the food falls faster
+  startSpeed: 0.22,      // how fast food falls (bigger = faster)
+};
+// =====================================================================
+
+const cvs = document.getElementById('game');
+const ctx = cvs.getContext('2d');
+const FONT = 'Fredoka, system-ui, sans-serif';
+const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+
+let W = 0, H = 0, groundTop = 0, baseR = 50, itemSize = 44;
+let state = 'start';       // start | playing | ending | over
+let score = 0, lives = CONFIG.lives, level = 0, best = 0;
+let items = [], particles = [], floaters = [], clouds = [];
+let spawnT = 0, spawned = 0, endT = 0, bannerT = 0, time = 0;
+let pointerDown = false, pointerX = null, pointerY = null;
+const keys = {};
+
+const m = { x: 0, targetX: 0, r: 50, mouth: 0, blink: 0, blinkT: 2.5, happy: 0, yuck: 0, lookX: 0, lookY: 0 };
+
+// ---------- storage (best score, sound) ----------
+function load(key, fallback) { try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } }
+function save(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {} }
+best = load('ftm.best', 0);
+let muted = load('ftm.muted', false);
+
+// ---------- sound ----------
+let ac = null;
+function initAudio() {
+  if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { ac = null; } }
+  if (ac && ac.state === 'suspended') ac.resume().catch(() => {});
+}
+function tone(freq, endFreq, dur, type, vol, delay) {
+  if (!ac || muted) return;
+  const t0 = ac.currentTime + (delay || 0);
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type || 'square';
+  o.frequency.setValueAtTime(freq, t0);
+  if (endFreq) o.frequency.exponentialRampToValueAtTime(endFreq, t0 + dur);
+  g.gain.setValueAtTime(vol || 0.12, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.connect(g); g.connect(ac.destination);
+  o.start(t0); o.stop(t0 + dur + 0.02);
+}
+const sfx = {
+  chomp() { tone(440, 180, 0.07, 'square', 0.1); tone(400, 150, 0.08, 'square', 0.1, 0.09); },
+  yuck()  { tone(300, 70, 0.45, 'sawtooth', 0.11); tone(318, 74, 0.45, 'sawtooth', 0.06, 0.03); },
+  burp()  { tone(140, 55, 0.5, 'sawtooth', 0.16); tone(150, 60, 0.45, 'square', 0.06, 0.05);
+            [523, 659, 784, 1047].forEach((f, i) => tone(f, null, 0.12, 'triangle', 0.13, 0.55 + i * 0.09)); },
+  start() { [262, 330, 392, 523].forEach((f, i) => tone(f, null, 0.11, 'triangle', 0.14, i * 0.07)); },
+  over()  { [392, 330, 262, 196].forEach((f, i) => tone(f, null, 0.24, 'triangle', 0.15, i * 0.18)); },
+};
+
+// ---------- helpers ----------
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function hex(h) { h = h.replace('#', ''); if (h.length === 3) h = h.split('').map(c => c + c).join(''); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+const rgb = a => `rgb(${a[0]},${a[1]},${a[2]})`;
+function ell(x, y, rx, ry, fill) { ctx.beginPath(); ctx.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), 0, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill(); }
+function outlinedText(txt, x, y, size, fill, align) {
+  ctx.font = `700 ${size}px ${FONT}`;
+  ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round'; ctx.lineWidth = size * 0.2; ctx.strokeStyle = '#fff';
+  ctx.strokeText(txt, x, y); ctx.fillStyle = fill; ctx.fillText(txt, x, y);
+}
+
+// ---------- layout ----------
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cvs.width = Math.round(W * dpr); cvs.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  groundTop = H - Math.max(46, H * 0.12);
+  baseR = clamp(Math.min(W, H) * 0.095, 36, 80);
+  itemSize = clamp(baseR * 0.9, 34, 66);
+  if (!m.x) { m.x = m.targetX = W / 2; m.r = baseR; }
+  m.x = clamp(m.x, 0, W); m.targetX = clamp(m.targetX, 0, W);
+  if (!clouds.length) for (let i = 0; i < 5; i++) clouds.push({ x: rand(0, 1), y: rand(0.08, 0.45), s: rand(0.7, 1.3), v: rand(0.006, 0.016) });
+}
+window.addEventListener('resize', resize);
+
+// ---------- screens ----------
+const startScreen = document.getElementById('startScreen');
+const overScreen = document.getElementById('overScreen');
+document.querySelectorAll('.mname').forEach(el => el.textContent = CONFIG.monsterName);
+document.getElementById('goodList').textContent = CONFIG.yummy.slice(0, 4).join('');
+document.getElementById('badList').textContent = CONFIG.yucky.slice(0, 4).join('');
+
+function startGame() {
+  if (state === 'playing' || state === 'ending') return;
+  initAudio();
+  score = 0; lives = CONFIG.lives; level = 0;
+  items = []; particles = []; floaters = [];
+  spawnT = 0.5; spawned = 0; bannerT = 0;
+  m.yuck = 0; m.happy = 0;
+  startScreen.classList.add('hidden'); overScreen.classList.add('hidden');
+  state = 'playing';
+  sfx.start();
+}
+function showGameOver() {
+  state = 'over';
+  const isRecord = score > best && score > 0;
+  if (isRecord) { best = score; save('ftm.best', best); }
+  document.getElementById('finalScore').textContent = score;
+  document.getElementById('bestLine').innerHTML = isRecord
+    ? '<span class="record">New record! 🎉</span>'
+    : `Best so far: ${best}`;
+  overScreen.classList.remove('hidden');
+  sfx.over();
+}
+document.getElementById('playBtn').addEventListener('click', startGame);
+document.getElementById('againBtn').addEventListener('click', startGame);
+
+const muteBtn = document.getElementById('mute');
+function showMute() { muteBtn.textContent = muted ? '🔇' : '🔊'; }
+muteBtn.addEventListener('click', () => { muted = !muted; save('ftm.muted', muted); showMute(); initAudio(); });
+showMute();
+
+// ---------- controls ----------
+function setTarget(x) { m.targetX = x; }
+cvs.addEventListener('pointerdown', e => { pointerDown = true; setTarget(e.clientX); initAudio(); });
+window.addEventListener('pointermove', e => {
+  pointerX = e.clientX; pointerY = e.clientY;
+  if (e.pointerType === 'mouse' || pointerDown) setTarget(e.clientX);
+});
+window.addEventListener('pointerup', () => { pointerDown = false; });
+window.addEventListener('pointercancel', () => { pointerDown = false; });
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (['arrowleft', 'arrowright', 'a', 'd'].includes(k)) { keys[k] = true; e.preventDefault(); }
+  if ((e.key === 'Enter' || e.key === ' ') && (state === 'start' || state === 'over')) { e.preventDefault(); startGame(); }
+});
+window.addEventListener('keyup', e => { delete keys[e.key.toLowerCase()]; });
+
+// ---------- game logic ----------
+function spawnItem() {
+  // the first few are always yummy, so it starts gently
+  const yucky = spawned >= 3 && Math.random() < CONFIG.yuckyChance;
+  const pad = itemSize * 0.8;
+  items.push({
+    x: rand(pad, W - pad), y: -itemSize,
+    e: yucky ? pick(CONFIG.yucky) : pick(CONFIG.yummy),
+    good: !yucky,
+    rot: rand(-0.3, 0.3), spin: rand(-1.6, 1.6),
+    v: rand(0.9, 1.12),
+  });
+  spawned++;
+}
+function burst(x, y, colours, n) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, Math.PI * 2), s = rand(80, 260);
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 120, life: 1, c: pick(colours), size: rand(3, 7) });
+  }
+}
+function floatText(txt, x, y, colour) { floaters.push({ txt, x, y, c: colour, life: 1 }); }
+
+function eat(it) {
+  if (it.good) {
+    score++;
+    m.happy = 1;
+    sfx.chomp();
+    burst(it.x, it.y, ['#ffcf40', '#ff7aa8', '#7ad3ff', '#9be07a', '#ffffff'], 12);
+    floatText(pick(['Yum!', 'Nom nom!', 'Tasty!', 'Mmm!', 'Crunch!']), m.x, groundTop - m.r * 2.3, '#ff7a29');
+    const newLevel = Math.floor(score / CONFIG.burpEvery);
+    if (newLevel > level) { level = newLevel; bannerT = 1.6; setTimeout(() => sfx.burp(), 150); }
+  } else {
+    lives--;
+    m.yuck = 1;
+    sfx.yuck();
+    burst(it.x, it.y, ['#8ccf3f', '#6aa92b', '#b6e36a'], 14);
+    floatText(pick(['Yuck!', 'Bleurgh!', 'Eww!']), m.x, groundTop - m.r * 2.3, '#3f9a1f');
+    if (lives <= 0) { state = 'ending'; endT = 1.1; }
+  }
+}
+
+function update(dt) {
+  time += dt;
+  for (const c of clouds) { c.x += c.v * dt; if (c.x > 1.25) { c.x = -0.25; c.y = rand(0.08, 0.45); } }
+
+  // monster movement
+  const kd = (keys['arrowright'] || keys['d'] ? 1 : 0) - (keys['arrowleft'] || keys['a'] ? 1 : 0);
+  if (kd) m.targetX += kd * W * 0.85 * dt;
+  m.targetX = clamp(m.targetX, m.r, W - m.r);
+  m.x += (m.targetX - m.x) * Math.min(1, dt * 14);
+  m.r += (baseR * (1 + Math.min(level, 6) * 0.05) - m.r) * Math.min(1, dt * 4);
+
+  // face
+  m.blinkT -= dt;
+  if (m.blinkT <= 0) { m.blink = 1; m.blinkT = rand(2, 4.5); }
+  m.blink = Math.max(0, m.blink - dt * 7);
+  m.happy = Math.max(0, m.happy - dt * 3.2);
+  m.yuck = Math.max(0, m.yuck - dt * (state === 'ending' ? 0.4 : 1.2));
+  bannerT = Math.max(0, bannerT - dt);
+
+  // falling food
+  if (state === 'playing') {
+    spawnT -= dt;
+    if (spawnT <= 0) { spawnItem(); spawnT = Math.max(0.42, 1.15 - level * 0.09) * rand(0.8, 1.2); }
+  }
+  if (state === 'ending') { endT -= dt; if (endT <= 0) showGameOver(); }
+
+  const speed = H * Math.min(0.65, CONFIG.startSpeed + level * 0.04);
+  const mouthY = groundTop - m.r * 0.92;
+  let nearest = null, nearestD = Infinity;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    it.y += speed * it.v * dt;
+    it.rot += it.spin * dt;
+    if (state === 'playing'
+        && Math.abs(it.x - m.x) < m.r * 0.85 + itemSize * 0.25
+        && it.y + itemSize * 0.35 > mouthY - m.r * 0.5
+        && it.y - itemSize * 0.35 < mouthY + m.r * 0.6) {
+      items.splice(i, 1); eat(it); continue;
+    }
+    if (it.y > H + itemSize) { items.splice(i, 1); continue; }
+    const d = Math.hypot(it.x - m.x, it.y - mouthY);
+    if (it.y < mouthY && d < nearestD) { nearestD = d; nearest = it; }
+  }
+
+  // eyes follow the nearest food (or your finger)
+  let tx = 0, ty = 0;
+  const eyeY = groundTop - m.r * 1.3;
+  if (nearest) { const dx = nearest.x - m.x, dy = nearest.y - eyeY, l = Math.hypot(dx, dy) || 1; tx = dx / l; ty = dy / l; }
+  else if (pointerX !== null) { const dx = pointerX - m.x, dy = pointerY - eyeY, l = Math.hypot(dx, dy) || 1; tx = dx / l; ty = dy / l; }
+  else { tx = Math.sin(time * 0.7) * 0.6; ty = -0.2; }
+  m.lookX += (tx - m.lookX) * Math.min(1, dt * 10);
+  m.lookY += (ty - m.lookY) * Math.min(1, dt * 10);
+
+  // mouth opens when food is close above
+  const close = nearest && Math.abs(nearest.x - m.x) < m.r * 1.6 && mouthY - nearest.y < m.r * 3.2;
+  const want = (state === 'playing' && close) ? 1 : 0;
+  m.mouth += (want - m.mouth) * Math.min(1, dt * 12);
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.vy += 600 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt * 1.4;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const f = floaters[i]; f.y -= 60 * dt; f.life -= dt * 1.1;
+    if (f.life <= 0) floaters.splice(i, 1);
+  }
+}
+
+// ---------- drawing ----------
+function drawCloud(x, y, s) {
+  const u = Math.min(W, H) * 0.06 * s;
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  for (const [ox, oy, r] of [[0, 0, 1], [1.1, 0.2, 0.8], [-1.1, 0.25, 0.75], [0.5, -0.5, 0.8], [-0.5, -0.4, 0.7]]) {
+    ctx.beginPath(); ctx.arc(x + ox * u, y + oy * u, r * u, 0, Math.PI * 2); ctx.fill();
+  }
+}
+function drawBackground() {
+  const sky = ctx.createLinearGradient(0, 0, 0, groundTop);
+  sky.addColorStop(0, '#7fd0ff'); sky.addColorStop(1, '#dff6ff');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, groundTop + 2);
+
+  const sx = W * 0.84, sy = H * 0.2, sr = Math.min(W, H) * 0.07;
+  const glow = ctx.createRadialGradient(sx, sy, sr * 0.5, sx, sy, sr * 2.4);
+  glow.addColorStop(0, 'rgba(255,236,140,0.8)'); glow.addColorStop(1, 'rgba(255,236,140,0)');
+  ctx.fillStyle = glow; ctx.fillRect(sx - sr * 2.5, sy - sr * 2.5, sr * 5, sr * 5);
+  ell(sx, sy, sr, sr, '#ffd84a');
+
+  for (const c of clouds) drawCloud(c.x * W, c.y * groundTop, c.s);
+
+  ell(W * 0.18, groundTop + 4, W * 0.42, H * 0.13, '#9fe27e');
+  ell(W * 0.86, groundTop + 4, W * 0.36, H * 0.1, '#8bd86b');
+
+  ctx.fillStyle = '#5cbf3f'; ctx.fillRect(0, groundTop, W, H - groundTop);
+  ctx.fillStyle = '#4aa832'; ctx.fillRect(0, groundTop, W, 6);
+}
+
+function drawMonster() {
+  const r = m.r;
+  const hop = Math.sin(m.happy * Math.PI) * r * 0.22;
+  const shake = m.yuck > 0.05 ? Math.sin(time * 55) * r * 0.07 * m.yuck : 0;
+  const x = m.x + shake, y = groundTop - r * 0.92 - hop;
+  const breathe = Math.sin(time * 3.2) * 0.025;
+  const bodyArr = mix(hex(CONFIG.monsterColour), [124, 196, 68], Math.min(1, m.yuck) * 0.8);
+  const body = rgb(bodyArr), dark = rgb(mix(bodyArr, [30, 15, 50], 0.5)), belly = rgb(mix(bodyArr, [255, 255, 255], 0.5));
+
+  // shadow
+  ctx.save(); ctx.globalAlpha = 0.18;
+  ell(m.x, groundTop + r * 0.04, r * (0.95 - hop / r * 0.8), r * 0.13, '#000');
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(x, y); ctx.scale(1 + breathe, 1 - breathe);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.lineWidth = Math.max(2, r * 0.06); ctx.strokeStyle = dark;
+
+  // feet
+  for (const s of [-1, 1]) ell(s * r * 0.45, r * 0.86, r * 0.3, r * 0.17, dark);
+
+  // arms (go up when happy)
+  for (const s of [-1, 1]) {
+    ctx.save();
+    ctx.translate(s * r * 0.92, r * 0.1);
+    ctx.rotate(-s * (0.45 + m.happy * 1.9 + Math.sin(time * 4) * 0.08));
+    ctx.beginPath(); ctx.ellipse(0, r * 0.2, r * 0.16, r * 0.32, 0, 0, Math.PI * 2);
+    ctx.fillStyle = body; ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  // horns
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(s * r * 0.28, -r * 0.8);
+    ctx.quadraticCurveTo(s * r * 0.55, -r * 1.3, s * r * 0.8, -r * 1.3);
+    ctx.quadraticCurveTo(s * r * 0.72, -r * 0.92, s * r * 0.62, -r * 0.62);
+    ctx.closePath(); ctx.fillStyle = '#fff1c1'; ctx.fill(); ctx.stroke();
+  }
+
+  // body
+  ctx.beginPath(); ctx.ellipse(0, 0, r * 1.05, r * 0.95, 0, 0, Math.PI * 2);
+  ctx.fillStyle = body; ctx.fill(); ctx.stroke();
+  ctx.globalAlpha = 0.22;
+  ell(-r * 0.72, -r * 0.12, r * 0.12, r * 0.1, dark);
+  ell(r * 0.76, r * 0.25, r * 0.1, r * 0.08, dark);
+  ell(r * 0.58, -r * 0.62, r * 0.08, r * 0.07, dark);
+  ctx.globalAlpha = 1;
+  ell(0, r * 0.45, r * 0.6, r * 0.42, belly);
+
+  // cheeks
+  for (const s of [-1, 1]) ell(s * r * 0.7, r * 0.02, r * 0.12, r * 0.07, 'rgba(255,120,160,0.45)');
+
+  // mouth
+  const my = r * 0.15, mw = r * 0.5;
+  ctx.lineWidth = Math.max(2, r * 0.06); ctx.strokeStyle = '#3a0f2a';
+  if (m.yuck > 0.35) {
+    ell(mw * 0.15, my + r * 0.13, r * 0.13, r * 0.16, '#ff7aa8');
+    ctx.beginPath(); ctx.moveTo(-mw * 0.8, my);
+    for (let i = 1; i <= 4; i++) ctx.quadraticCurveTo(-mw * 0.8 + (i - 0.5) * mw * 0.4, my + (i % 2 ? -r * 0.08 : r * 0.08), -mw * 0.8 + i * mw * 0.4, my);
+    ctx.stroke();
+  } else if (m.mouth < 0.12) {
+    ctx.beginPath(); ctx.arc(0, my - r * 0.12, mw * 0.75, Math.PI * 0.2, Math.PI * 0.8); ctx.stroke();
+  } else {
+    const mh = r * (0.1 + 0.38 * m.mouth), cy = my + mh * 0.35;
+    ctx.beginPath(); ctx.ellipse(0, cy, mw, mh, 0, 0, Math.PI * 2); ctx.fillStyle = '#4a1236'; ctx.fill();
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(0, cy, mw, mh, 0, 0, Math.PI * 2); ctx.clip();
+    ell(0, cy + mh * 0.75, mw * 0.7, mh * 0.55, '#ff6f9f');
+    ctx.fillStyle = '#fff';
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(s * mw * 0.58, cy - mh); ctx.lineTo(s * mw * 0.22, cy - mh); ctx.lineTo(s * mw * 0.4, cy - mh + r * 0.16);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+    ctx.beginPath(); ctx.ellipse(0, cy, mw, mh, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  // eyes
+  const eyeY = -r * 0.4, eyeX = r * 0.36, er = r * 0.25;
+  for (const s of [-1, 1]) {
+    const ex = s * eyeX;
+    if (m.yuck > 0.35) {
+      ctx.beginPath(); ctx.lineWidth = r * 0.07; ctx.strokeStyle = '#2b1b3d';
+      ctx.moveTo(ex + s * er * 0.5, eyeY - er * 0.5);
+      ctx.lineTo(ex - s * er * 0.5, eyeY);
+      ctx.lineTo(ex + s * er * 0.5, eyeY + er * 0.5);
+      ctx.stroke();
+    } else {
+      const open = 1 - m.blink;
+      ctx.lineWidth = Math.max(2, r * 0.05); ctx.strokeStyle = dark;
+      ctx.beginPath(); ctx.ellipse(ex, eyeY, er, er * Math.max(0.08, open), 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff'; ctx.fill(); ctx.stroke();
+      if (open > 0.3) {
+        const px = ex + m.lookX * er * 0.45, py = eyeY + m.lookY * er * 0.45 * open;
+        ell(px, py, er * 0.5, er * 0.5 * open, '#2b1b3d');
+        ell(px - er * 0.16, py - er * 0.18 * open, er * 0.15, er * 0.15 * open, '#fff');
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawItems() {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `${itemSize}px ${EMOJI_FONT}`;
+  for (const it of items) {
+    ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot);
+    ctx.fillText(it.e, 0, 0);
+    ctx.restore();
+  }
+}
+
+function drawEffects() {
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ell(p.x, p.y, p.size, p.size, p.c);
+  }
+  ctx.globalAlpha = 1;
+  const fs = clamp(m.r * 0.55, 22, 40);
+  for (const f of floaters) {
+    ctx.globalAlpha = Math.max(0, Math.min(1, f.life * 1.6));
+    outlinedText(f.txt, f.x, f.y, fs, f.c);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawHUD() {
+  if (state === 'start') return;
+  const fs = clamp(W * 0.06, 28, 44);
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.font = `${fs}px ${EMOJI_FONT}`;
+  ctx.fillText('🍪', 16, 18 + fs / 2);
+  const ew = ctx.measureText('🍪').width;
+  outlinedText(String(score), 16 + ew + 10, 18 + fs / 2, fs, '#3b2a6b', 'left');
+
+  const hs = fs * 0.72;
+  ctx.font = `${hs}px ${EMOJI_FONT}`; ctx.textAlign = 'left';
+  let hearts = '';
+  for (let i = 0; i < CONFIG.lives; i++) hearts += i < lives ? '❤️' : '🤍';
+  ctx.fillText(hearts, 16, 18 + fs + 8 + hs / 2);
+
+  if (bannerT > 0) {
+    const t = 1.6 - bannerT;
+    const pop = t < 0.25 ? 0.4 + (t / 0.25) * 0.75 : 1.15 - Math.min(0.15, (t - 0.25) * 0.6);
+    const a = Math.min(1, bannerT * 2.5);
+    ctx.save(); ctx.globalAlpha = a;
+    ctx.translate(W / 2, H * 0.36); ctx.scale(pop, pop);
+    outlinedText('BURP!', 0, 0, clamp(W * 0.16, 56, 120), '#ff7a29');
+    outlinedText('Faster food coming!', 0, clamp(W * 0.12, 48, 90), clamp(W * 0.05, 20, 34), '#3b2a6b');
+    ctx.restore();
+  }
+}
+
+function draw() {
+  drawBackground();
+  drawItems();
+  drawMonster();
+  drawEffects();
+  drawHUD();
+}
+
+// ---------- main loop ----------
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  update(dt);
+  draw();
+  requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange', () => { last = performance.now(); });
+
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
