@@ -71,12 +71,17 @@
     transition: transform 0.06s, box-shadow 0.06s;
   }
   button.go:active { transform: translateY(4px); box-shadow: 0 2px 0 #3b2a6b; }
-  #mute {
+  #mute, #pauseBtn {
     position: fixed; top: 12px; right: 12px; z-index: 5;
     width: 52px; height: 52px; border-radius: 50%;
     background: rgba(255, 255, 255, 0.9); border: 3px solid #3b2a6b;
     font-size: 24px; line-height: 1; cursor: pointer; padding: 0;
   }
+  #pauseBtn { right: 74px; }
+  #pauseBtn.hidden { display: none; }
+  #pauseScreen { pointer-events: auto; background: rgba(59, 42, 107, 0.35); padding-top: 76px; }
+  #resumeBtn { padding: 10px 28px; white-space: nowrap; }
+  button.go.alt { background: #fff; font-size: 22px; padding: 8px 32px; margin-top: 12px; }
   @media (min-width: 640px) and (min-height: 521px) {
     .card { max-width: 620px; }
     .rows { grid-template-columns: 1fr 1fr; }
@@ -100,6 +105,7 @@
 <canvas id="game"></canvas>
 
 <button id="mute" aria-label="Sound on or off">🔊</button>
+<button id="pauseBtn" class="hidden" aria-label="Pause">⏸️</button>
 
 <div id="startScreen" class="overlay">
   <div class="card">
@@ -111,8 +117,17 @@
       <div class="row hay"><span class="emo" id="hayShow"></span><span id="hayText">Hay! Lose 5 points</span></div>
       <div class="row gold"><span class="emo" id="goldShow"></span><span id="goldText">Super snacks! 5 and 10 points</span></div>
     </div>
-    <p class="how">Don't let his tummy go empty!<br>Move with your finger, the mouse or the arrow keys</p>
+    <p class="how">Don't let his tummy go empty!<br>Move with your finger, the mouse or the arrow keys<br>Press ⏸️ (or P) to pause</p>
     <button class="go" id="playBtn">Play!</button>
+  </div>
+</div>
+
+<div id="pauseScreen" class="overlay hidden">
+  <div class="card">
+    <h1>Paused</h1>
+    <p class="big"><span class="mname">Munchy</span> will wait for you!</p>
+    <button class="go" id="resumeBtn">Keep playing!</button><br>
+    <button class="go alt" id="restartBtn">Start again</button>
   </div>
 </div>
 
@@ -156,7 +171,7 @@ const FONT = 'Fredoka, system-ui, sans-serif';
 const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 
 let W = 0, H = 0, groundTop = 0, baseR = 50, itemSize = 44;
-let state = 'start';       // start | playing | ending | over
+let state = 'start';       // start | playing | paused | ending | over
 let score = 0, lives = CONFIG.lives, level = 0, best = 0;
 let items = [], particles = [], floaters = [], clouds = [];
 let spawnT = 0, spawned = 0, endT = 0, bannerT = 0, bannerSub = '', time = 0;
@@ -245,6 +260,8 @@ window.addEventListener('resize', resize);
 // ---------- screens ----------
 const startScreen = document.getElementById('startScreen');
 const overScreen = document.getElementById('overScreen');
+const pauseScreen = document.getElementById('pauseScreen');
+const pauseBtn = document.getElementById('pauseBtn');
 document.querySelectorAll('.mname').forEach(el => el.textContent = CONFIG.monsterName);
 document.getElementById('goodList').textContent = CONFIG.yummy.slice(0, 4).join('');
 document.getElementById('badList').textContent = CONFIG.yucky.slice(0, 4).join('');
@@ -261,12 +278,14 @@ function startGame() {
   spawnT = 0.5; spawned = 0; bannerT = 0;
   hunger = 1; hungryWarned = false; overReason = 'yucky';
   m.yuck = 0; m.happy = 0;
-  startScreen.classList.add('hidden'); overScreen.classList.add('hidden');
+  startScreen.classList.add('hidden'); overScreen.classList.add('hidden'); pauseScreen.classList.add('hidden');
+  pauseBtn.textContent = '⏸️'; pauseBtn.classList.remove('hidden');
   state = 'playing';
   sfx.start();
 }
 function showGameOver() {
   state = 'over';
+  pauseBtn.classList.add('hidden');
   const isRecord = score > best && score > 0;
   if (isRecord) { best = score; save('ftm.best', best); }
   document.getElementById('finalScore').textContent = score;
@@ -283,14 +302,34 @@ function showGameOver() {
 document.getElementById('playBtn').addEventListener('click', startGame);
 document.getElementById('againBtn').addEventListener('click', startGame);
 
+// ---------- pause ----------
+function pauseGame() {
+  if (state !== 'playing') return;
+  state = 'paused';
+  pointerDown = false;
+  for (const k in keys) delete keys[k];
+  pauseScreen.classList.remove('hidden');
+  pauseBtn.textContent = '▶️';
+}
+function resumeGame() {
+  if (state !== 'paused') return;
+  state = 'playing';
+  last = performance.now();
+  pauseScreen.classList.add('hidden');
+  pauseBtn.textContent = '⏸️';
+}
+pauseBtn.addEventListener('click', () => { state === 'paused' ? resumeGame() : pauseGame(); });
+document.getElementById('resumeBtn').addEventListener('click', resumeGame);
+document.getElementById('restartBtn').addEventListener('click', startGame);
+
 const muteBtn = document.getElementById('mute');
 function showMute() { muteBtn.textContent = muted ? '🔇' : '🔊'; }
 muteBtn.addEventListener('click', () => { muted = !muted; save('ftm.muted', muted); showMute(); initAudio(); });
 showMute();
 
 // ---------- controls ----------
-function setTarget(x) { m.targetX = x; }
-cvs.addEventListener('pointerdown', e => { pointerDown = true; setTarget(e.clientX); initAudio(); });
+function setTarget(x) { if (state !== 'paused') m.targetX = x; }
+cvs.addEventListener('pointerdown', e => { if (state === 'paused') return; pointerDown = true; setTarget(e.clientX); initAudio(); });
 window.addEventListener('pointermove', e => {
   pointerX = e.clientX; pointerY = e.clientY;
   if (e.pointerType === 'mouse' || pointerDown) setTarget(e.clientX);
@@ -299,6 +338,8 @@ window.addEventListener('pointerup', () => { pointerDown = false; });
 window.addEventListener('pointercancel', () => { pointerDown = false; });
 window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
+  if (k === 'p' || e.key === 'Escape') { e.preventDefault(); state === 'paused' ? resumeGame() : pauseGame(); return; }
+  if (state === 'paused') { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); resumeGame(); } return; }
   if (['arrowleft', 'arrowright', 'a', 'd'].includes(k)) { keys[k] = true; e.preventDefault(); }
   if ((e.key === 'Enter' || e.key === ' ') && (state === 'start' || state === 'over')) { e.preventDefault(); startGame(); }
 });
@@ -692,11 +733,11 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  update(dt);
+  if (state !== 'paused') update(dt);
   draw();
   requestAnimationFrame(frame);
 }
-document.addEventListener('visibilitychange', () => { last = performance.now(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); last = performance.now(); });
 
 resize();
 requestAnimationFrame(frame);
